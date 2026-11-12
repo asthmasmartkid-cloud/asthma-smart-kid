@@ -199,3 +199,16 @@ details.faq[open] > summary::after { transform: rotate(180deg); }
 label.check { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
 label.check input { width: 22px; height: 22px; flex: none; accent-color: var(--brand); }
 .faq-extra { display: flex; flex-direction: column; gap: 12px; }
+
+/* ยาสูดพ่น: ช่อง puff และกรอบข้อ 3 เมื่อเลือกเป็นยาพ่น */
+.puff { display: flex; align-items: center; gap: 10px; }
+.puff input { max-width: 120px; }
+.puff span { font-weight: 600; }
+#inhalerBox { border: 1.5px dashed var(--line); border-radius: 14px; padding: 12px 14px 14px; }
+#inhalerBox legend { padding: 0 6px; }
+#inhalerBox.on { border-style: solid; border-color: var(--brand); background: var(--brand-soft); }
+
+/* นัดพบแพทย์ */
+.appt-banner { border-left: 6px solid var(--warn); display: flex; flex-direction: column; gap: 10px; }
+.appt-entry h2 { margin: 0 0 4px; }
+.card.appt + .card.appt { margin-top: 0; }

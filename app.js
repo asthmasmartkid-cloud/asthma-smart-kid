@@ -1,5 +1,5 @@
 /* หน้า LIFF ของ Asthma Smart Kid (ระบบเตือนทานยาผ่าน LINE) — single page app, ไม่มี build step
- * หน้า: ?page=today | meds | history | invite | join&code=XXXX | videos | qa
+ * หน้า: ?page=today | meds | appt | history | invite | join&code=XXXX | videos | qa
  * ทุกคำขอไป Apps Script แนบ LINE ID token (Api.gs ตรวจกับ LINE)
  */
 (function () {
@@ -40,6 +40,10 @@
     ['ก่อนอาหาร เช้า-เย็น', 'breakfast:before,dinner:before'],
     ['ก่อนนอน', 'bedtime']
   ];
+  // ยาสูดพ่น: เวลาตามมื้ออาหารที่ตั้งไว้ (เช้า = เวลาอาหารเช้า, เย็น = เวลาอาหารเย็น) ไม่เลื่อนก่อน/หลังอาหาร
+  var INHALER_PRESETS = [['เช้า', 'breakfast'], ['เช้า-เย็น', 'breakfast,dinner'], ['ก่อนนอน', 'bedtime']];
+  function isInh(m) { return String(m && m.kind || '').toUpperCase() === 'INHALER'; }
+  function verbOf(m) { return isInh(m) ? 'พ่น' : 'ทาน'; }
 
   /* ───────────── utils ───────────── */
 
@@ -91,7 +95,7 @@
   }
   /** บอกผู้ใช้ว่าระบบจะเตือนยานี้ครั้งถัดไปเมื่อไร (ให้มั่นใจว่าตั้งถูก) */
   function nextLine(m) {
-    if (String(m.schedule_type).toUpperCase() === 'PRN') return 'ยานี้ไม่มีการเตือน กด “บันทึกว่าทาน” ในหน้ายาวันนี้เมื่อทาน';
+    if (String(m.schedule_type).toUpperCase() === 'PRN') return 'ยานี้ไม่มีการเตือน กด “บันทึกว่า' + verbOf(m) + '” ในหน้ายาวันนี้เมื่อ' + verbOf(m);
     return m.next_at ? 'เตือนครั้งถัดไป ' + whenText(m.next_at) : 'ยานี้จะไม่มีการเตือนอีก (ตรวจวันที่สิ้นสุด)';
   }
   function ymdLocal(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
@@ -132,9 +136,9 @@
 
   var PAGES = {
     today: pageToday, meds: pageMeds, history: pageHistory, invite: pageInvite,
-    join: pageJoin, videos: pageVideos, qa: pageQa, register: pageRegister
+    join: pageJoin, videos: pageVideos, qa: pageQa, register: pageRegister, appt: pageAppt
   };
-  var NEED_PATIENT = ['today', 'meds', 'history', 'invite'];
+  var NEED_PATIENT = ['today', 'meds', 'history', 'invite', 'appt'];
 
   function go(page, params) {
     state.page = PAGES[page] ? page : 'today';
@@ -287,24 +291,25 @@
           ${scheduled.length ? html`<span class="badge ok">เสร็จแล้ว ${done}/${scheduled.length}</span>` : ''}</div>
         ${rel === 'proxy' && p.proxyMode ? html`<p class="note">คุณรับข้อความเตือนแทน ${p.name} · กด “ทานแล้ว” เมื่อผู้ป่วยทานยาแล้ว</p>`
           : rel !== 'self' ? html`<p class="note">คุณกำลังดูแทน ${p.name} · การกดจะบันทึกว่าผู้ดูแลยืนยันแทน</p>` : ''}
+        ${d.appt ? apptBanner(d.appt) : ''}
         ${d.doses.length ? '' : html`<div class="card soft"><p>วันนี้ไม่มียาที่ต้องทานตามเวลา</p><button class="btn ghost" data-go="meds">ไปที่ตารางยา</button></div>`}
         ${order.map(function (t) {
           return html`<section class="slot"><div class="slot-time">${t} น.</div>
             ${groups[t].map(function (x) {
               var open = OPEN.indexOf(x.status) >= 0;
               return html`<div class="dose">
-                <div class="dose-top"><div><div class="dose-name">${x.name}</div><div class="dose-meta">${x.is_prn ? 'ทานเมื่อมีอาการ' : x.dose_text || ''}${x.skip_reason ? ' · ข้าม: ' + x.skip_reason : ''}</div></div>${x.is_prn ? html`<span class="badge ok">บันทึกแล้ว</span>` : badge(x.status)}</div>
-                ${open && x.can_confirm ? html`<div class="row"><button class="btn" data-take="${x.dose_id}">ทานแล้ว</button><button class="btn secondary" data-skip="${x.dose_id}">ข้าม</button></div>` : ''}
+                <div class="dose-top"><div><div class="dose-name">${x.name}</div><div class="dose-meta">${x.is_prn ? verbOf(x) + 'เมื่อมีอาการ' : x.dose_text || ''}${x.skip_reason ? ' · ข้าม: ' + x.skip_reason : ''}</div></div>${x.is_prn ? html`<span class="badge ok">บันทึกแล้ว</span>` : badge(x.status)}</div>
+                ${open && x.can_confirm ? html`<div class="row"><button class="btn" data-take="${x.dose_id}">${verbOf(x)}แล้ว</button><button class="btn secondary" data-skip="${x.dose_id}">ข้าม</button></div>` : ''}
                 ${open && !x.can_confirm && x.status === 'PENDING' ? html`<p class="note">กดยืนยันได้ตั้งแต่ ${x.confirm_from} น.</p>` : ''}
                 ${x.can_undo ? html`<button class="btn ghost small undo" data-undo="${x.dose_id}">↩ ยกเลิก (กดผิด)</button>` : ''}
               </div>`;
             })}
           </section>`;
         })}
-        ${d.prn.length ? html`<section class="card"><h2>ยากินเมื่อมีอาการ</h2>
+        ${d.prn.length ? html`<section class="card"><h2>ยาใช้เมื่อมีอาการ</h2>
           ${d.prn.map(function (m) {
             return html`<div class="dose-top"><div><div class="dose-name">${m.name}</div><div class="dose-meta">${m.dose_text || ''}${m.prn_max_per_day ? ' · ไม่เกิน ' + m.prn_max_per_day + ' ครั้ง/วัน' : ''}</div></div>
-              <button class="btn small" data-prn="${m.med_id}">บันทึกว่าทาน</button></div>`;
+              <button class="btn small" data-prn="${m.med_id}">บันทึกว่า${verbOf(m)}</button></div>`;
           })}</section>` : ''}
         <p class="note" style="text-align:center">${state.me.patient ? '' : html`ต้องการรับการเตือนยาของตัวเองด้วย? <a href="#" data-go="register" data-mode="self">ลงทะเบียนเป็นผู้ป่วย</a><br>`}
           ดูแลผู้ป่วยที่ใช้ LINE ไม่ได้? <a href="#" data-go="register" data-mode="proxy">ลงทะเบียนแทนผู้ป่วย</a></p>`);
@@ -342,15 +347,19 @@
   /* ───────────── หน้า: ตารางยา ───────────── */
 
   function describe(m) {
-    var t = String(m.schedule_type).toUpperCase(), s;
+    var t = String(m.schedule_type).toUpperCase(), s, inh = isInh(m);
     if (t === 'FIXED') s = 'เวลา ' + String(m.times).split(',').map(function (x) { return x.trim(); }).join(', ') + ' น.';
+    else if (t === 'MEAL' && inh) s = 'พ่น ' + String(m.meals).split(',').filter(Boolean).map(function (tok) {
+      return { breakfast: 'เช้า', lunch: 'กลางวัน', dinner: 'เย็น', bedtime: 'ก่อนนอน' }[tok.trim().split(':')[0]] || tok;
+    }).join('-');
     else if (t === 'MEAL') s = String(m.meals).split(',').filter(Boolean).map(function (tok) {
       var p = tok.trim().split(':'), name = { breakfast: 'อาหารเช้า', lunch: 'อาหารกลางวัน', dinner: 'อาหารเย็น' }[p[0]];
       if (p[0] === 'bedtime') return 'ก่อนนอน';
       return ({ before: 'ก่อน', after: 'หลัง' }[p[1]] || 'พร้อม') + name;
     }).join(', ');
     else if (t === 'INTERVAL') s = 'ทุก ' + m.interval_hours + ' ชั่วโมง เริ่ม ' + (m.interval_start || '00:00') + ' น.';
-    else s = 'กินเมื่อมีอาการ' + (m.prn_max_per_day ? ' (ไม่เกิน ' + m.prn_max_per_day + ' ครั้ง/วัน)' : '');
+    else s = (inh ? 'พ่น' : 'กิน') + 'เมื่อมีอาการ' + (m.prn_max_per_day ? ' (ไม่เกิน ' + m.prn_max_per_day + ' ครั้ง/วัน)' : '');
+    if (inh) s = 'ยาสูดพ่น · ' + s;
     var dow = String(m.days_of_week || '').trim();
     if (dow) s += ' · เฉพาะวัน ' + dow.split(',').map(function (d) { return DOW[+d]; }).join(' ');
     if (m.end_date) s += ' · ถึง ' + m.end_date;
@@ -376,6 +385,10 @@
             <div class="row"><button class="btn secondary small" data-edit="${m.med_id}">แก้ไข</button><button class="btn danger small" data-del="${m.med_id}">ลบ</button></div>
           </div>`;
         })}
+        <section class="card soft appt-entry">
+          <div class="dose-top"><div><h2>🏥 นัดพบแพทย์</h2><p class="note">ใส่วันนัดจากใบนัด ระบบเตือนเย็นวันก่อนนัดและเช้าวันนัด</p></div>
+            <button class="btn small" data-go="appt">จัดการนัด</button></div>
+        </section>
         <form class="card soft" id="mealForm">
           <h2>เวลามื้ออาหาร</h2>
           <p class="note">ยาที่ตั้งเป็นก่อนอาหารจะเตือนก่อน 30 นาที หลังอาหารเตือนหลัง 15 นาที</p>
@@ -406,12 +419,19 @@
       <div class="page-head"><h1>${m.med_id ? 'แก้ไขยา' : 'เพิ่มยา'}</h1><button class="btn ghost small" data-go="meds">ยกเลิก</button></div>
       <form class="card" id="medForm" novalidate>
         <label class="field"><span><b>1.</b> ชื่อยา</span><input type="text" name="name" maxlength="80" required value="${m.name || ''}" placeholder="ดูจากซองยา เช่น Amlodipine 5mg"></label>
-        <label class="field">ครั้งละ<span class="hint">ไม่บังคับ</span><input type="text" name="dose_text" maxlength="40" value="${m.dose_text || ''}" placeholder="เช่น 1 เม็ด"></label>
+        <label class="field" id="doseTextField">ครั้งละ<span class="hint">ไม่บังคับ</span><input type="text" name="dose_text" maxlength="40" value="${isInh(m) ? '' : m.dose_text || ''}" placeholder="เช่น 1 เม็ด"></label>
 
-        <fieldset class="who"><legend><b>2.</b> ทานตอนไหน <span class="note">(กดตามที่เขียนบนซองยา)</span></legend>
+        <fieldset class="who"><legend><b>2.</b> เวลารับประทานยา <span class="note">(กดตามที่เขียนบนซองยา)</span></legend>
           <div class="presets">${PRESETS.map(function (x) { return html`<button type="button" class="preset" data-preset="${x[1]}">${x[0]}</button>`; })}</div>
           <span class="note">ไม่ตรงกับปุ่มด้านบน? เลือกแบบอื่น:</span>
           <div class="seg">${TYPES.map(function (t) { return html`<label><input type="radio" name="schedule_type" value="${t[0]}" ${raw(t[0] === type ? 'checked' : '')}>${t[1]}</label>`; })}</div>
+        </fieldset>
+
+        <fieldset class="who" id="inhalerBox"><legend><b>3.</b> ยาสูดพ่น <span class="note">(ถ้าเป็นยาพ่น กรอกข้อนี้แทนข้อ 2)</span></legend>
+          <label class="field">ครั้งละ<span class="puff"><input type="number" name="puffs" min="1" max="20" step="1" inputmode="numeric" value="${isInh(m) ? m.units_per_dose || '' : ''}" placeholder="เช่น 2" aria-label="จำนวน puff ต่อครั้ง"><span>puff</span></span></label>
+          <span style="font-weight:600">เวลาพ่นยา</span>
+          <div class="presets">${INHALER_PRESETS.map(function (x) { return html`<button type="button" class="preset" data-ipreset="${x[1]}">${x[0]}</button>`; })}</div>
+          <span class="note">เช้า เย็น และก่อนนอน ใช้เวลามื้ออาหารที่ตั้งไว้ในหน้าตารางยา · ยาพ่นเมื่อมีอาการ: กรอกจำนวน puff แล้วเลือก “เมื่อมีอาการ” ในข้อ 2</span>
         </fieldset>
 
         <div data-type="FIXED" class="times" id="timeList">
@@ -419,7 +439,7 @@
           <button type="button" class="btn ghost small" data-act="addTime">+ เพิ่มเวลา</button>
         </div>
 
-        <div data-type="MEAL" style="display:flex;flex-direction:column;gap:10px">
+        <div data-type="MEAL" id="mealBox" style="display:flex;flex-direction:column;gap:10px">
           ${MEALS.map(function (x) {
             var on = meals[x[0]];
             return html`<div class="meal-row"><label class="chip"><input type="checkbox" name="meal_${x[0]}" ${raw(on ? 'checked' : '')}>${x[1]}</label>
@@ -457,7 +477,7 @@
               <span style="font-weight:600">นับยาคงเหลือ</span><span class="note">กรอกจำนวนยาที่มี ระบบจะเตือนก่อนยาหมด</span>
               <div class="grid2">
                 <label class="field">ยาคงเหลือ<input type="number" name="stock_qty" min="0" inputmode="numeric" value="${m.stock_qty === undefined ? '' : m.stock_qty}"></label>
-                <label class="field">ใช้ต่อครั้ง<input type="number" name="units_per_dose" min="0.5" step="0.5" inputmode="decimal" value="${m.units_per_dose || 1}"></label>
+                <label class="field" id="unitsField">ใช้ต่อครั้ง<input type="number" name="units_per_dose" min="0.5" step="0.5" inputmode="decimal" value="${m.units_per_dose || 1}"></label>
                 <label class="field">เตือนเมื่อเหลือ (วัน)<input type="number" name="low_stock_days" min="0" inputmode="numeric" value="${m.low_stock_days || ''}" placeholder="3"></label>
               </div>
             </div>
@@ -466,17 +486,28 @@
 
         <div class="preview" id="preview" aria-live="polite"></div>
         <p class="err" id="formErr" hidden></p>
-        <button class="btn" type="submit"><b>3.</b>&nbsp;บันทึก</button>
+        <button class="btn" type="submit">บันทึก</button>
       </form>`);
 
     var form = $view.querySelector('#medForm');
+    form.dataset.kind = isInh(m) ? 'INHALER' : '';
     var sync = function () {
-      var t = form.querySelector('input[name=schedule_type]:checked').value;
+      var t = form.querySelector('input[name=schedule_type]:checked').value, inh = form.dataset.kind === 'INHALER';
       form.querySelectorAll('[data-type]').forEach(function (el) { el.hidden = el.dataset.type !== t; });
       form.querySelector('[data-notprn]').hidden = t === 'PRN';
-      // ไฮไลต์ปุ่มลัดที่ตรงกับค่าปัจจุบัน
+      // ยาสูดพ่น: จำนวนต่อครั้งอยู่ในข้อ 3 และเวลาเช้า/เย็นไม่มีก่อน/หลังอาหาร จึงซ่อนช่องที่ซ้ำกัน
+      form.querySelector('#doseTextField').hidden = inh;
+      form.querySelector('#unitsField').hidden = inh;
+      if (inh) form.querySelector('#mealBox').hidden = true;
+      form.querySelector('#inhalerBox').classList.toggle('on', inh);
+      // ไฮไลต์ปุ่มลัดที่ตรงกับค่าปัจจุบัน (ข้อ 2 = ยากิน, ข้อ 3 = ยาพ่น)
       var cur = t === 'MEAL' ? collectMed(form, m.med_id).meals : '';
-      form.querySelectorAll('[data-preset]').forEach(function (b) { b.classList.toggle('on', b.dataset.preset === cur); b.setAttribute('aria-pressed', b.dataset.preset === cur); });
+      form.querySelectorAll('[data-preset]').forEach(function (b) { var on = !inh && b.dataset.preset === cur; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+      form.querySelectorAll('[data-ipreset]').forEach(function (b) { var on = inh && b.dataset.ipreset === cur; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    };
+    var setKind = function (k) {
+      form.dataset.kind = k;
+      if (!k) form.elements.puffs.value = '';
     };
     var applyPreset = function (meals) {
       form.querySelector('input[name=schedule_type][value=MEAL]').checked = true;
@@ -502,7 +533,7 @@
         : close ? 'เวลา ' + close + ' ห่างกันไม่ถึง 1 ชั่วโมง ตรวจว่าตรงกับซองยา'
         : times.length > 6 ? 'เตือนบ่อยมาก (วันละ ' + times.length + ' ครั้ง) ข้อความฟรีของ LINE (300 ข้อความ/เดือน) อาจหมดเร็ว' : '';
       form.querySelector('#preview').innerHTML = String(med.schedule_type === 'PRN'
-        ? html`<b>ไม่มีการเตือน</b> · กด “บันทึกว่าทาน” ในหน้ายาวันนี้ทุกครั้งที่ทาน`
+        ? html`<b>ไม่มีการเตือน</b> · กด “บันทึกว่า${verbOf(med)}” ในหน้ายาวันนี้ทุกครั้งที่${verbOf(med)}`
         : times.length ? html`<b>ระบบจะเตือนเวลา</b> ${times.join(', ')} น. · ${dows}${range}<br><span class="note">วันละ ${times.length} ครั้ง</span>${warn ? html`<br><b class="err">⚠ ${warn}</b>` : ''}`
         : html`<b>ยังไม่มีเวลาเตือน</b> · กรอกข้อมูลด้านบนให้ครบ`);
     };
@@ -510,10 +541,20 @@
       form.querySelector('#formErr').hidden = true;
       sync(); showPreview();
     });
-    form.addEventListener('input', showPreview);
+    form.addEventListener('input', function (e) {
+      form.querySelector('#formErr').hidden = true;
+      if (e.target.name === 'puffs' && e.target.value !== '' && form.dataset.kind !== 'INHALER') { setKind('INHALER'); sync(); }
+      showPreview();
+    });
     form.addEventListener('click', function (e) {
       var pr = e.target.closest('[data-preset]');
-      if (pr) return applyPreset(pr.dataset.preset);
+      if (pr) { setKind(''); return applyPreset(pr.dataset.preset); }
+      var ip = e.target.closest('[data-ipreset]');
+      if (ip) {
+        setKind('INHALER'); applyPreset(ip.dataset.ipreset);
+        if (!form.elements.puffs.value) form.elements.puffs.focus();
+        return;
+      }
       if (e.target.closest('[data-act=addTime],[data-act=rmTime]')) setTimeout(showPreview, 0);
     });
     sync(); showPreview();
@@ -559,8 +600,14 @@
       name: val('name'), dose_text: val('dose_text'), note: val('note'), schedule_type: t,
       times: '', meals: '', interval_hours: '', interval_start: '', prn_max_per_day: '',
       days_of_week: '', start_date: '', end_date: '',
-      stock_qty: num('stock_qty'), units_per_dose: num('units_per_dose') || 1, low_stock_days: num('low_stock_days')
+      stock_qty: num('stock_qty'), units_per_dose: num('units_per_dose') || 1, low_stock_days: num('low_stock_days'),
+      kind: form.dataset.kind === 'INHALER' ? 'INHALER' : ''
     };
+    if (med.kind) {   // ยาสูดพ่น: "ครั้งละ N puff" นับยาคงเหลือเป็น puff และเวลาเช้า/เย็นไม่มีก่อน/หลังอาหาร
+      med.puffs = num('puffs');
+      med.dose_text = med.puffs ? med.puffs + ' puff' : '';
+      med.units_per_dose = med.puffs || 1;
+    }
     if (medId) med.med_id = medId;
     if (t === 'FIXED') {
       var ts = Array.prototype.map.call(form.querySelectorAll('input[name=time]'), function (i) { return i.value; }).filter(Boolean);
@@ -571,6 +618,7 @@
         .map(function (x) { return x[0] + ':' + form.elements['when_' + x[0]].value; });
       if (form.elements.meal_bedtime.checked) parts.push('bedtime');
       med.meals = parts.join(',');
+      if (med.kind) med.meals = med.meals.replace(/:with/g, '');   // ยาพ่น: ตรงเวลามื้อ ไม่มีก่อน/หลังอาหาร
     }
     if (t === 'INTERVAL') { med.interval_hours = num('interval_hours'); med.interval_start = val('interval_start'); }
     if (t === 'PRN') med.prn_max_per_day = num('prn_max_per_day');
@@ -613,6 +661,7 @@
 
   function validateMed(m) {
     if (!m.name) return 'กรุณาระบุชื่อยา';
+    if (m.kind === 'INHALER' && !(m.puffs >= 1 && m.puffs <= 20 && m.puffs === Math.floor(m.puffs))) return 'ยาสูดพ่น: กรอกจำนวน puff ต่อครั้ง (1–20)';
     if (m.schedule_type === 'FIXED' && !m.times) return 'กรุณาระบุเวลาอย่างน้อย 1 เวลา';
     if (m.schedule_type === 'MEAL' && !m.meals) return 'กรุณาเลือกมื้ออาหารอย่างน้อย 1 มื้อ';
     if (m.schedule_type === 'INTERVAL' && !(m.interval_hours >= 1 && m.interval_hours <= 24)) return 'ช่วงเวลาต้องอยู่ระหว่าง 1–24 ชั่วโมง';
@@ -631,6 +680,91 @@
       api('deleteMed', { medId: medId }).then(function () { toast('ลบแล้ว'); go('meds'); }).catch(function (err) { toast(err.message); });
     };
     $dialog.showModal();
+  }
+
+  /* ───────────── หน้า: นัดพบแพทย์ ───────────── */
+
+  function apptWhen(a) {
+    return a.days_left === 0 ? 'วันนี้' : a.days_left === 1 ? 'พรุ่งนี้' : a.days_left > 1 ? 'อีก ' + a.days_left + ' วัน' : '';
+  }
+
+  /** การ์ดนัดครั้งถัดไปบนหน้า "วันนี้" */
+  function apptBanner(a) {
+    return html`<div class="card appt-banner">
+      <div class="dose-top"><div><div class="dose-name">🏥 นัดพบแพทย์${a.days_left <= 1 ? ' ' + apptWhen(a) : ''}</div>
+        <div class="dose-meta">${a.date_text}${a.time ? ' · ' + a.time + ' น.' : ''}${a.place ? ' · ' + a.place : ''}</div></div>
+        ${a.days_left > 1 ? html`<span class="badge">${apptWhen(a)}</span>` : html`<span class="badge warn">${apptWhen(a)}</span>`}</div>
+      <button class="btn ghost small" data-go="appt">ดูนัดทั้งหมด</button>
+    </div>`;
+  }
+
+  function apptCard(a, past) {
+    var when = apptWhen(a);
+    return html`<div class="card appt">
+      <div class="dose-top"><div><div class="dose-name">${a.date_text}</div>
+        <div class="dose-meta">${a.time ? 'เวลา ' + a.time + ' น.' : 'ไม่ระบุเวลา'}${a.place ? ' · ' + a.place : ''}</div></div>
+        ${!past && when ? html`<span class="badge ${a.days_left <= 1 ? 'warn' : ''}">${when}</span>` : ''}</div>
+      ${a.note ? html`<p class="note">${a.note}</p>` : ''}
+      ${past ? '' : html`<div class="row"><button class="btn secondary small" data-aedit="${a.appt_id}">แก้ไข</button><button class="btn danger small" data-adel="${a.appt_id}">ลบ</button></div>`}
+    </div>`;
+  }
+
+  function pageAppt(params) {
+    var p = currentPatient();
+    return api('listAppts', { patientId: state.patientId }).then(function (r) {
+      var edit = params && params.edit ? r.upcoming.filter(function (a) { return a.appt_id === params.edit; })[0] : null;
+      var today = ymdLocal(new Date());
+      render(html`
+        <div class="page-head"><div><h1>นัดพบแพทย์</h1><p class="sub">${p ? p.name + ' · ' : ''}${r.upcoming.length ? r.upcoming.length + ' นัดที่จะถึง' : 'ยังไม่มีนัด'}</p></div>
+          <button class="btn ghost small" data-go="meds">กลับ</button></div>
+        <p class="note">ระบบส่ง LINE เตือนเย็นวันก่อนนัด (${r.remind.eve} น.) และเช้าวันนัด (${r.remind.morning} น.) ถึงคนที่รับข้อความเตือนยา</p>
+        <div id="apptList">${r.upcoming.length ? r.upcoming.map(function (a) { return apptCard(a, false); })
+          : html`<div class="card soft"><p>ยังไม่มีนัด เพิ่มวันนัดจากใบนัดของโรงพยาบาลได้ด้านล่าง</p></div>`}</div>
+        <form class="card" id="apptForm" novalidate>
+          <h2>${edit ? 'แก้ไขนัด' : 'เพิ่มนัด'}</h2>
+          <div class="grid2">
+            <label class="field">วันนัด<input type="date" name="date" required min="${today}" value="${edit ? edit.date : ''}"></label>
+            <label class="field">เวลา<span class="hint">ไม่บังคับ</span><input type="time" name="time" value="${edit ? edit.time : ''}"></label>
+          </div>
+          <label class="field">สถานที่<span class="hint">ไม่บังคับ</span><input type="text" name="place" maxlength="80" value="${edit ? edit.place : ''}" placeholder="เช่น คลินิกโรคหืด โรงพยาบาล…"></label>
+          <label class="field">หมายเหตุ<span class="hint">ไม่บังคับ</span><input type="text" name="note" maxlength="120" value="${edit ? edit.note : ''}" placeholder="เช่น นำยาพ่นและสมุดนัดไปด้วย"></label>
+          <p class="err" hidden></p>
+          <div class="row"><button class="btn" type="submit">${edit ? 'บันทึกการแก้ไข' : 'บันทึกนัด'}</button>
+            ${edit ? html`<button class="btn secondary" type="button" data-go="appt">ยกเลิกการแก้ไข</button>` : ''}</div>
+        </form>
+        ${r.past.length ? html`<details class="more"><summary>นัดที่ผ่านมา (${r.past.length})</summary>
+          ${r.past.map(function (a) { return apptCard(a, true); })}</details>` : ''}`);
+
+      var form = $view.querySelector('#apptForm');
+      if (edit) form.scrollIntoView();
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var v = formData(form), $err = form.querySelector('.err'), btn = form.querySelector('button[type=submit]');
+        var msg = !v.date ? 'กรุณาเลือกวันนัด' : v.date < today ? 'วันนัดผ่านไปแล้ว ตรวจวันที่อีกครั้ง' : '';
+        if (msg) { $err.textContent = msg; $err.hidden = false; return; }
+        $err.hidden = true; btn.disabled = true;
+        if (edit) v.appt_id = edit.appt_id;
+        api('saveAppt', { patientId: state.patientId, appt: v }).then(function (a) {
+          toast('บันทึกนัดแล้ว · ' + a.date_text + (a.time ? ' ' + a.time + ' น.' : ''));
+          go('appt');
+        }).catch(function (err) { btn.disabled = false; $err.textContent = err.message; $err.hidden = false; });
+      });
+      $view.querySelector('#apptList').onclick = function (e) {
+        var ed = e.target.closest('[data-aedit]'), del = e.target.closest('[data-adel]');
+        if (ed) return go('appt', { edit: ed.dataset.aedit });
+        if (!del) return;
+        var a = r.upcoming.filter(function (x) { return x.appt_id === del.dataset.adel; })[0] || {};
+        $dialog.innerHTML = String(html`<h2>ลบนัด ${a.date_text || ''}?</h2><p class="note">ระบบจะไม่เตือนนัดนี้อีก</p>
+          <div class="dialog-actions"><button class="btn danger" data-yes>ลบนัด</button><button class="btn secondary" data-no>ยกเลิก</button></div>`);
+        $dialog.onclick = function (ev) {
+          if (ev.target.closest('[data-no]')) return $dialog.close();
+          if (!ev.target.closest('[data-yes]')) return;
+          $dialog.close();
+          api('deleteAppt', { apptId: a.appt_id }).then(function () { toast('ลบนัดแล้ว'); go('appt'); }).catch(function (err) { toast(err.message); });
+        };
+        $dialog.showModal();
+      };
+    });
   }
 
   /* ───────────── หน้า: ประวัติ ───────────── */
@@ -796,7 +930,7 @@
   function qaNorm(s) {
     return String(s || '').toLowerCase().replace(/รับประทาน|ทาน/g, 'กิน').replace(/[\s?？!.,，、:;'"“”()\-–—…]/g, '');
   }
-  var QA_URGENT = 'ถ้ามีอาการรุนแรง เช่น หายใจลำบาก แน่นหน้าอก หน้าหรือปากบวม ผื่นขึ้นทั้งตัว ชัก หมดสติ โทร 1669 ทันที ไม่ต้องรอคำตอบ · ทานยาเกินขนาด โทรศูนย์พิษวิทยา 1367 (24 ชม.)';
+  var QA_URGENT = 'ถ้าเด็กมีอาการหายใจเหนื่อย ปีกจมูกบาน อกบุ๋ม ริมฝีปากเขียว ปลายมือปลายเท้าม่วง เรียก 1669 ทันที หรือรีบนำส่งโรงพยาบาล';
   var Q_STATUS = { OPEN: ['รอคำตอบ', 'warn'], ANSWERED: ['ตอบแล้ว', 'ok'] };
 
   function shortTime(iso) { return iso ? whenText(iso).replace('พรุ่งนี้', '').trim() : ''; }
@@ -810,7 +944,7 @@
     return html`<div class="qa-item">
       <div class="dose-top"><div class="qa-q">${q.text}</div><span class="badge ${st[1]}">${st[0]}</span></div>
       <div class="note">ถามเมื่อ ${shortTime(q.asked_at)}</div>
-      ${q.answer ? html`<div class="qa-a"><b>${state.me.qaTeam || 'เภสัชกร'}ตอบ:</b> ${q.answer}</div>` : ''}
+      ${q.answer ? html`<div class="qa-a"><b>${state.me.qaTeam || 'พยาบาล'}ตอบ:</b> ${q.answer}</div>` : ''}
     </div>`;
   }
 
@@ -832,12 +966,12 @@
   }
 
   function pageQa() {
-    var me = state.me, team = me.qaTeam || 'เภสัชกร';
+    var me = state.me, team = me.qaTeam || 'พยาบาล';
     var friendship = liff.getFriendship ? liff.getFriendship().catch(function () { return { friendFlag: true }; }) : Promise.resolve({ friendFlag: true });
     return Promise.all([api('faq'), api('myQuestions'), me.isQaStaff ? api('staffQuestions') : null, friendship]).then(function (r) {
       var faqs = r[0], mine = r[1], staff = r[2], isFriend = !!r[3].friendFlag;
       var oa = me.oaBasicId || CFG.OA_BASIC_ID;
-      render(html`<div class="page-head"><div><h1>ถาม-ตอบเรื่องยา</h1>
+      render(html`<div class="page-head"><div><h1>ถาม-ตอบ</h1>
           <p class="sub">${me.hasQaStaff ? 'ค้นหาคำถามที่พบบ่อย หรือส่งคำถามถึง' + team : 'ค้นหาคำถามที่พบบ่อย'}</p></div></div>
         ${staff ? html`<section class="card" id="staffBox">
           <h2>คำถามรอตอบ (${staff.open.length})</h2>
@@ -864,7 +998,7 @@
           <div id="askResult" hidden></div>
           <p class="err" hidden></p>
           <button class="btn" type="submit">ส่งคำถาม</button>
-        </form>` : html`<div class="card soft"><p>ยังไม่มี${team}ตอบคำถามในระบบ ถ้าไม่พบคำตอบ สอบถาม${team}ที่ร้านยาหรือโรงพยาบาลที่รับยา</p></div>`}
+        </form>` : html`<div class="card soft"><p>ยังไม่มี${team}ตอบคำถามในระบบ ถ้าไม่พบคำตอบ สอบถามแพทย์หรือพยาบาลที่โรงพยาบาลที่รักษา</p></div>`}
         <section class="card">
           <h2>คำถามของฉัน</h2>
           ${mine.length ? mine.map(myQuestionItem) : html`<p class="note">ยังไม่เคยส่งคำถาม · พิมพ์คำถามในแชต LINE ก็ได้</p>`}
