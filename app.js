@@ -32,16 +32,25 @@
   var DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
   var TYPES = [['FIXED', 'ตั้งเวลาเอง'], ['MEAL', 'ตามมื้ออาหาร'], ['INTERVAL', 'ทุกกี่ชั่วโมง'], ['PRN', 'เมื่อมีอาการ']];
   // ปุ่มลัดตามคำบนฉลากยาที่พบบ่อย — กดปุ่มเดียวแทนการตั้งค่าเอง (ผู้สูงอายุไม่ต้องเข้าใจ "รูปแบบเวลา")
+  // (ตารางเวลาของทีมพยาบาล: หลังอาหาร = ตรงเวลาอาหาร, ก่อนอาหาร = ก่อน 1 ชั่วโมง, ถ้ายังไม่กดเตือนซ้ำหลัง 15 นาที)
   var PRESETS = [
     ['หลังอาหาร เช้า', 'breakfast:after'],
+    ['หลังอาหาร เย็น', 'dinner:after'],
     ['หลังอาหาร เช้า-เย็น', 'breakfast:after,dinner:after'],
     ['หลังอาหาร เช้า-กลางวัน-เย็น', 'breakfast:after,lunch:after,dinner:after'],
     ['ก่อนอาหาร เช้า', 'breakfast:before'],
+    ['ก่อนอาหาร กลางวัน', 'lunch:before'],
+    ['ก่อนอาหาร เย็น', 'dinner:before'],
     ['ก่อนอาหาร เช้า-เย็น', 'breakfast:before,dinner:before'],
+    ['ก่อนอาหาร เช้า-กลางวัน-เย็น', 'breakfast:before,lunch:before,dinner:before'],
     ['ก่อนนอน', 'bedtime']
   ];
-  // ยาสูดพ่น: เวลาตามมื้ออาหารที่ตั้งไว้ (เช้า = เวลาอาหารเช้า, เย็น = เวลาอาหารเย็น) ไม่เลื่อนก่อน/หลังอาหาร
-  var INHALER_PRESETS = [['เช้า', 'breakfast'], ['เช้า-เย็น', 'breakfast,dinner'], ['ก่อนนอน', 'bedtime']];
+  // ยาสูดพ่น: เช้า = เวลาพ่นยาเช้า (morning), เย็น = เวลาอาหารเย็น, ก่อนนอน = เวลาเข้านอน
+  var INHALER_PRESETS = [['เช้า', 'morning'], ['เย็น', 'dinner'], ['เช้า-เย็น', 'morning,dinner'], ['ก่อนนอน', 'bedtime'], ['เมื่อมีอาการ', 'PRN']];
+  // ต้องตรงกับ CONFIG.DEFAULT_MEALS / MEAL_BEFORE_MIN / MEAL_AFTER_MIN ใน Config.gs (ใช้แสดงเวลาก่อนกดบันทึก)
+  var DEF_MEALS = { breakfast: '08:00', lunch: '12:00', dinner: '18:00', bedtime: '20:00', morning: '06:00' };
+  var MEAL_OFF = { before: -60, after: 0, with: 0 };
+  var MEAL_FIELDS = [['breakfast', 'อาหารเช้า'], ['lunch', 'อาหารกลางวัน'], ['dinner', 'อาหารเย็น'], ['bedtime', 'เข้านอน'], ['morning', 'พ่นยาเช้า']];
   function isInh(m) { return String(m && m.kind || '').toUpperCase() === 'INHALER'; }
   function verbOf(m) { return isInh(m) ? 'พ่น' : 'ทาน'; }
 
@@ -180,10 +189,9 @@
 
   function mealInputs(p) {
     p = p || {};
-    var def = { breakfast: '07:00', lunch: '12:00', dinner: '18:00', bedtime: '21:00' };
     return html`<div class="grid2">
-      ${[['breakfast', 'อาหารเช้า'], ['lunch', 'อาหารกลางวัน'], ['dinner', 'อาหารเย็น'], ['bedtime', 'เข้านอน']].map(function (m) {
-        return html`<label class="field">${m[1]}<input type="time" name="${m[0]}" value="${p[m[0]] || def[m[0]]}" required></label>`;
+      ${MEAL_FIELDS.map(function (m) {
+        return html`<label class="field">${m[1]}<input type="time" name="${m[0]}" value="${p[m[0]] || DEF_MEALS[m[0]]}" required></label>`;
       })}
     </div>`;
   }
@@ -350,11 +358,12 @@
     var t = String(m.schedule_type).toUpperCase(), s, inh = isInh(m);
     if (t === 'FIXED') s = 'เวลา ' + String(m.times).split(',').map(function (x) { return x.trim(); }).join(', ') + ' น.';
     else if (t === 'MEAL' && inh) s = 'พ่น ' + String(m.meals).split(',').filter(Boolean).map(function (tok) {
-      return { breakfast: 'เช้า', lunch: 'กลางวัน', dinner: 'เย็น', bedtime: 'ก่อนนอน' }[tok.trim().split(':')[0]] || tok;
+      return { morning: 'เช้า', breakfast: 'เช้า', lunch: 'กลางวัน', dinner: 'เย็น', bedtime: 'ก่อนนอน' }[tok.trim().split(':')[0]] || tok;
     }).join('-');
     else if (t === 'MEAL') s = String(m.meals).split(',').filter(Boolean).map(function (tok) {
       var p = tok.trim().split(':'), name = { breakfast: 'อาหารเช้า', lunch: 'อาหารกลางวัน', dinner: 'อาหารเย็น' }[p[0]];
       if (p[0] === 'bedtime') return 'ก่อนนอน';
+      if (p[0] === 'morning') return 'ช่วงเช้า';
       return ({ before: 'ก่อน', after: 'หลัง' }[p[1]] || 'พร้อม') + name;
     }).join(', ');
     else if (t === 'INTERVAL') s = 'ทุก ' + m.interval_hours + ' ชั่วโมง เริ่ม ' + (m.interval_start || '00:00') + ' น.';
@@ -390,8 +399,8 @@
             <button class="btn small" data-go="appt">จัดการนัด</button></div>
         </section>
         <form class="card soft" id="mealForm">
-          <h2>เวลามื้ออาหาร</h2>
-          <p class="note">ยาที่ตั้งเป็นก่อนอาหารจะเตือนก่อน 30 นาที หลังอาหารเตือนหลัง 15 นาที</p>
+          <h2>เวลามื้ออาหารและเวลาพ่นยา</h2>
+          <p class="note">ยาหลังอาหารเตือนตรงเวลาอาหาร · ยาก่อนอาหารเตือนก่อน 1 ชั่วโมง · ยาก่อนนอนเตือนตามเวลาเข้านอน · ยาพ่นเช้าเตือนตามเวลาพ่นยาเช้า · ถ้ายังไม่กด ระบบเตือนซ้ำหลัง 15 นาที</p>
           ${mealInputs(p)}
           <button class="btn ghost" type="submit">บันทึกเวลามื้ออาหาร</button>
         </form>`);
@@ -404,69 +413,94 @@
     });
   }
 
+  /** เวลาเตือนของปุ่มลัด (แสดงใต้ชื่อปุ่ม ให้ครอบครัวเห็นก่อนกดว่าจะเตือนกี่โมง) */
+  function presetHint(meals) {
+    if (meals === 'PRN') return 'ไม่ตั้งเตือน';
+    return previewTimes({ schedule_type: 'MEAL', meals: meals }, currentPatient() || {}).join(' · ');
+  }
+  function presetBtn(x, attr) {
+    return html`<button type="button" class="preset" ${raw(attr)}="${x[1]}"><span>${x[0]}</span><small>${presetHint(x[1])}</small></button>`;
+  }
+
+  /**
+   * ฟอร์มเพิ่ม/แก้ยา 2 ส่วน (ตามข้อเสนอของทีม 16 พ.ย. 2026)
+   *   1. ยารับประทาน — ชื่อยา, ครั้งละ, เวลารับประทานยา (ปุ่มลัดตามซองยา หรือรูปแบบอื่น)
+   *   2. ยาสูดพ่น    — ชื่อยา, ครั้งละ N puff, เวลาพ่นยา (เช้า / เย็น / เช้า-เย็น / ก่อนนอน / เมื่อมีอาการ)
+   * ส่วนที่กรอกหรือกดล่าสุดคือชนิดยาที่บันทึก (form.dataset.kind = '' | 'INHALER')
+   */
   function medForm(m) {
     m = m || { schedule_type: 'FIXED', times: '08:00', units_per_dose: 1 };
+    var inhMed = isInh(m);
     var type = String(m.schedule_type || 'FIXED').toUpperCase();
-    var times = String(m.times || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var oralType = inhMed ? 'FIXED' : type;
+    var times = inhMed ? [] : String(m.times || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     if (!times.length) times = ['08:00'];
     var meals = {};
-    String(m.meals || '').split(',').filter(Boolean).forEach(function (tok) { var p = tok.trim().split(':'); meals[p[0]] = p[1] || 'with'; });
+    if (!inhMed) String(m.meals || '').split(',').filter(Boolean).forEach(function (tok) { var p = tok.trim().split(':'); meals[p[0]] = p[1] || 'with'; });
     var dows = String(m.days_of_week || '').split(',').filter(function (s) { return s.trim() !== ''; }).map(Number);
+    // ยาพ่นเดิม: ค่าเวลาพ่นยาที่เลือกไว้ ('morning,dinner' | 'PRN' | 'LEGACY' = ตั้งเวลาเองจากรุ่นก่อน → เก็บค่าเดิมไว้)
+    var inhSel = !inhMed ? '' : type === 'PRN' ? 'PRN' : type === 'MEAL' ? String(m.meals || '').replace(/:with/g, '') : 'LEGACY';
+    var legacyNote = inhMed && !INHALER_PRESETS.some(function (x) { return x[1] === inhSel; }) ? describe(m) : '';
 
     var hasExtra = !!(m.note || dows.length || m.start_date || m.end_date || (m.stock_qty !== '' && m.stock_qty !== undefined && m.stock_qty !== null));
 
     render(html`
       <div class="page-head"><h1>${m.med_id ? 'แก้ไขยา' : 'เพิ่มยา'}</h1><button class="btn ghost small" data-go="meds">ยกเลิก</button></div>
       <form class="card" id="medForm" novalidate>
-        <label class="field"><span><b>1.</b> ชื่อยา</span><input type="text" name="name" maxlength="80" required value="${m.name || ''}" placeholder="ดูจากซองยา เช่น Amlodipine 5mg"></label>
-        <label class="field" id="doseTextField">ครั้งละ<span class="hint">ไม่บังคับ</span><input type="text" name="dose_text" maxlength="40" value="${isInh(m) ? '' : m.dose_text || ''}" placeholder="เช่น 1 เม็ด"></label>
+        <p class="note">กรอกข้อ 1 สำหรับยารับประทาน หรือ <button type="button" class="linkish" data-jump>ข้อ 2 สำหรับยาสูดพ่น ↓</button> (บันทึกทีละ 1 ยา)</p>
 
-        <fieldset class="who"><legend><b>2.</b> เวลารับประทานยา <span class="note">(กดตามที่เขียนบนซองยา)</span></legend>
-          <div class="presets">${PRESETS.map(function (x) { return html`<button type="button" class="preset" data-preset="${x[1]}">${x[0]}</button>`; })}</div>
+        <fieldset class="who kind-box" id="oralBox"><legend><b>1.</b> ยารับประทาน</legend>
+          <label class="field">ชื่อยา<input type="text" name="name" maxlength="80" value="${inhMed ? '' : m.name || ''}" placeholder="ดูจากซองยา เช่น Amoxicillin 250mg"></label>
+          <label class="field" id="doseTextField">ครั้งละ<span class="hint">ไม่บังคับ</span><input type="text" name="dose_text" maxlength="40" value="${inhMed ? '' : m.dose_text || ''}" placeholder="เช่น 1 เม็ด, 5 ml"></label>
+          <span class="sec-label">เวลารับประทานยา <span class="note">(กดตามที่เขียนบนซองยา)</span></span>
+          <div class="presets">${PRESETS.map(function (x) { return presetBtn(x, 'data-preset'); })}</div>
           <span class="note">ไม่ตรงกับปุ่มด้านบน? เลือกแบบอื่น:</span>
-          <div class="seg">${TYPES.map(function (t) { return html`<label><input type="radio" name="schedule_type" value="${t[0]}" ${raw(t[0] === type ? 'checked' : '')}>${t[1]}</label>`; })}</div>
+          <div class="seg">${TYPES.map(function (t) { return html`<label><input type="radio" name="schedule_type" value="${t[0]}" ${raw(t[0] === oralType ? 'checked' : '')}>${t[1]}</label>`; })}</div>
+
+          <div data-type="FIXED" class="times" id="timeList">
+            ${times.map(timeRow)}
+            <button type="button" class="btn ghost small" data-act="addTime">+ เพิ่มเวลา</button>
+          </div>
+
+          <div data-type="MEAL" id="mealBox" style="display:flex;flex-direction:column;gap:10px">
+            ${MEALS.map(function (x) {
+              var on = meals[x[0]];
+              return html`<div class="meal-row"><label class="chip"><input type="checkbox" name="meal_${x[0]}" ${raw(on ? 'checked' : '')}>${x[1]}</label>
+                <select class="input" name="when_${x[0]}" aria-label="ช่วงเวลา${x[1]}">
+                  ${[['before', 'ก่อนอาหาร 1 ชั่วโมง'], ['after', 'หลังอาหาร'], ['with', 'พร้อมอาหาร']].map(function (w) {
+                    return html`<option value="${w[0]}" ${raw((on || 'after') === w[0] ? 'selected' : '')}>${w[1]}</option>`;
+                  })}
+                </select></div>`;
+            })}
+            <label class="chip"><input type="checkbox" name="meal_bedtime" ${raw(meals.bedtime ? 'checked' : '')}>ก่อนนอน</label>
+          </div>
+
+          <div data-type="INTERVAL" class="grid2">
+            <label class="field">ทุกกี่ชั่วโมง<input type="number" name="interval_hours" min="1" max="24" inputmode="numeric" value="${!inhMed && m.interval_hours || 6}"></label>
+            <label class="field">เริ่มเวลา<input type="time" name="interval_start" value="${!inhMed && m.interval_start || '06:00'}"></label>
+          </div>
+
+          <div data-type="PRN">
+            <label class="field">ไม่เกินกี่ครั้งต่อวัน<span class="hint">เว้นว่าง = ไม่จำกัด</span><input type="number" name="prn_max_per_day" min="1" max="24" inputmode="numeric" value="${!inhMed && m.prn_max_per_day || ''}"></label>
+          </div>
         </fieldset>
 
-        <fieldset class="who" id="inhalerBox"><legend><b>3.</b> ยาสูดพ่น <span class="note">(ถ้าเป็นยาพ่น กรอกข้อนี้แทนข้อ 2)</span></legend>
-          <label class="field">ครั้งละ<span class="puff"><input type="number" name="puffs" min="1" max="20" step="1" inputmode="numeric" value="${isInh(m) ? m.units_per_dose || '' : ''}" placeholder="เช่น 2" aria-label="จำนวน puff ต่อครั้ง"><span>puff</span></span></label>
-          <span style="font-weight:600">เวลาพ่นยา</span>
-          <div class="presets">${INHALER_PRESETS.map(function (x) { return html`<button type="button" class="preset" data-ipreset="${x[1]}">${x[0]}</button>`; })}</div>
-          <span class="note">เช้า เย็น และก่อนนอน ใช้เวลามื้ออาหารที่ตั้งไว้ในหน้าตารางยา · ยาพ่นเมื่อมีอาการ: กรอกจำนวน puff แล้วเลือก “เมื่อมีอาการ” ในข้อ 2</span>
+        <fieldset class="who kind-box" id="inhalerBox"><legend><b>2.</b> ยาสูดพ่น</legend>
+          <label class="field">ชื่อยา<input type="text" name="inh_name" maxlength="80" value="${inhMed ? m.name || '' : ''}" placeholder="ดูจากหลอดยา เช่น Seretide Evohaler"></label>
+          <label class="field">ครั้งละ<span class="puff"><input type="number" name="puffs" min="1" max="20" step="1" inputmode="numeric" value="${inhMed ? m.units_per_dose || '' : ''}" placeholder="เช่น 2" aria-label="จำนวน puff ต่อครั้ง"><span>puff</span></span></label>
+          <span class="sec-label">เวลาพ่นยา</span>
+          <div class="presets">${INHALER_PRESETS.map(function (x) { return presetBtn(x, 'data-ipreset'); })}</div>
+          <label class="field" id="inhPrnField">ไม่เกินกี่ครั้งต่อวัน<span class="hint">เว้นว่าง = ไม่จำกัด</span><input type="number" name="inh_prn_max" min="1" max="24" inputmode="numeric" value="${inhMed && m.prn_max_per_day || ''}"></label>
+          ${legacyNote ? html`<p class="note" id="inhLegacy">เวลาเดิม: ${legacyNote} — กดเวลาพ่นยาด้านบนถ้าต้องการเปลี่ยน</p>` : ''}
+          <span class="note">เวลาพ่นยาเช้า เวลาอาหารเย็น และเวลาเข้านอน แก้ได้ที่ท้ายหน้าตารางยา</span>
         </fieldset>
-
-        <div data-type="FIXED" class="times" id="timeList">
-          ${times.map(timeRow)}
-          <button type="button" class="btn ghost small" data-act="addTime">+ เพิ่มเวลา</button>
-        </div>
-
-        <div data-type="MEAL" id="mealBox" style="display:flex;flex-direction:column;gap:10px">
-          ${MEALS.map(function (x) {
-            var on = meals[x[0]];
-            return html`<div class="meal-row"><label class="chip"><input type="checkbox" name="meal_${x[0]}" ${raw(on ? 'checked' : '')}>${x[1]}</label>
-              <select class="input" name="when_${x[0]}" aria-label="ช่วงเวลา${x[1]}">
-                ${[['before', 'ก่อนอาหาร 30 นาที'], ['after', 'หลังอาหาร'], ['with', 'พร้อมอาหาร']].map(function (w) {
-                  return html`<option value="${w[0]}" ${raw((on || 'after') === w[0] ? 'selected' : '')}>${w[1]}</option>`;
-                })}
-              </select></div>`;
-          })}
-          <label class="chip"><input type="checkbox" name="meal_bedtime" ${raw(meals.bedtime ? 'checked' : '')}>ก่อนนอน</label>
-        </div>
-
-        <div data-type="INTERVAL" class="grid2">
-          <label class="field">ทุกกี่ชั่วโมง<input type="number" name="interval_hours" min="1" max="24" inputmode="numeric" value="${m.interval_hours || 6}"></label>
-          <label class="field">เริ่มเวลา<input type="time" name="interval_start" value="${m.interval_start || '06:00'}"></label>
-        </div>
-
-        <div data-type="PRN">
-          <label class="field">ไม่เกินกี่ครั้งต่อวัน<span class="hint">เว้นว่าง = ไม่จำกัด</span><input type="number" name="prn_max_per_day" min="1" max="24" inputmode="numeric" value="${m.prn_max_per_day || ''}"></label>
-        </div>
 
         <details class="more" ${raw(hasExtra ? 'open' : '')}>
           <summary><span>ตัวเลือกเพิ่มเติม (ไม่บังคับ)<small>หมายเหตุ · เฉพาะบางวัน · นับยาคงเหลือ</small></span></summary>
           <div style="display:flex;flex-direction:column;gap:14px;margin-top:10px">
-            <label class="field">หมายเหตุ<input type="text" name="note" maxlength="80" value="${m.note || ''}" placeholder="เช่น ห้ามเคี้ยว"></label>
+            <label class="field">หมายเหตุ<input type="text" name="note" maxlength="80" value="${m.note || ''}" placeholder="เช่น ห้ามเคี้ยว, บ้วนปากหลังพ่น"></label>
             <div data-notprn style="display:flex;flex-direction:column;gap:8px">
-              <span style="font-weight:600">วันที่ต้องทาน</span><span class="note">ไม่เลือกเลย = ทุกวัน</span>
+              <span style="font-weight:600">วันที่ต้องใช้ยา</span><span class="note">ไม่เลือกเลย = ทุกวัน</span>
               <div class="chips">${DOW.map(function (d, i) { return html`<label class="chip"><input type="checkbox" name="dow" value="${i}" ${raw(dows.indexOf(i) >= 0 ? 'checked' : '')}>${d}</label>`; })}</div>
               <div class="grid2">
                 <label class="field">เริ่มวันที่<input type="date" name="start_date" value="${m.start_date || ''}"></label>
@@ -474,10 +508,10 @@
               </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <span style="font-weight:600">นับยาคงเหลือ</span><span class="note">กรอกจำนวนยาที่มี ระบบจะเตือนก่อนยาหมด</span>
+              <span style="font-weight:600">นับยาคงเหลือ</span><span class="note">กรอกจำนวนยาที่มี (ยาพ่นนับเป็น puff) ระบบจะเตือนก่อนยาหมด</span>
               <div class="grid2">
                 <label class="field">ยาคงเหลือ<input type="number" name="stock_qty" min="0" inputmode="numeric" value="${m.stock_qty === undefined ? '' : m.stock_qty}"></label>
-                <label class="field" id="unitsField">ใช้ต่อครั้ง<input type="number" name="units_per_dose" min="0.5" step="0.5" inputmode="decimal" value="${m.units_per_dose || 1}"></label>
+                <label class="field" id="unitsField">ใช้ต่อครั้ง<input type="number" name="units_per_dose" min="0.5" step="0.5" inputmode="decimal" value="${inhMed ? 1 : m.units_per_dose || 1}"></label>
                 <label class="field">เตือนเมื่อเหลือ (วัน)<input type="number" name="low_stock_days" min="0" inputmode="numeric" value="${m.low_stock_days || ''}" placeholder="3"></label>
               </div>
             </div>
@@ -490,25 +524,24 @@
       </form>`);
 
     var form = $view.querySelector('#medForm');
-    form.dataset.kind = isInh(m) ? 'INHALER' : '';
+    var orig = m;
+    form.dataset.kind = inhMed ? 'INHALER' : '';
+    form.dataset.inh = inhSel;
     var sync = function () {
       var t = form.querySelector('input[name=schedule_type]:checked').value, inh = form.dataset.kind === 'INHALER';
-      form.querySelectorAll('[data-type]').forEach(function (el) { el.hidden = el.dataset.type !== t; });
-      form.querySelector('[data-notprn]').hidden = t === 'PRN';
-      // ยาสูดพ่น: จำนวนต่อครั้งอยู่ในข้อ 3 และเวลาเช้า/เย็นไม่มีก่อน/หลังอาหาร จึงซ่อนช่องที่ซ้ำกัน
-      form.querySelector('#doseTextField').hidden = inh;
-      form.querySelector('#unitsField').hidden = inh;
-      if (inh) form.querySelector('#mealBox').hidden = true;
+      var med = collectMed(form, orig);
+      form.querySelectorAll('#oralBox [data-type]').forEach(function (el) { el.hidden = el.dataset.type !== t; });
+      form.querySelector('[data-notprn]').hidden = med.schedule_type === 'PRN';
+      form.querySelector('#unitsField').hidden = inh;          // ยาพ่น: ใช้ต่อครั้ง = จำนวน puff
+      form.querySelector('#inhPrnField').hidden = form.dataset.inh !== 'PRN';
+      form.querySelector('#oralBox').classList.toggle('on', !inh);
       form.querySelector('#inhalerBox').classList.toggle('on', inh);
-      // ไฮไลต์ปุ่มลัดที่ตรงกับค่าปัจจุบัน (ข้อ 2 = ยากิน, ข้อ 3 = ยาพ่น)
-      var cur = t === 'MEAL' ? collectMed(form, m.med_id).meals : '';
+      // ไฮไลต์ปุ่มลัดที่ตรงกับค่าปัจจุบันของแต่ละส่วน
+      var cur = !inh && t === 'MEAL' ? med.meals : '';
       form.querySelectorAll('[data-preset]').forEach(function (b) { var on = !inh && b.dataset.preset === cur; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
-      form.querySelectorAll('[data-ipreset]').forEach(function (b) { var on = inh && b.dataset.ipreset === cur; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+      form.querySelectorAll('[data-ipreset]').forEach(function (b) { var on = inh && b.dataset.ipreset === form.dataset.inh; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
     };
-    var setKind = function (k) {
-      form.dataset.kind = k;
-      if (!k) form.elements.puffs.value = '';
-    };
+    var setKind = function (k) { form.dataset.kind = k; };
     var applyPreset = function (meals) {
       form.querySelector('input[name=schedule_type][value=MEAL]').checked = true;
       var want = {};
@@ -518,11 +551,9 @@
         if (want[x[0]]) form.elements['when_' + x[0]].value = want[x[0]];
       });
       form.elements.meal_bedtime.checked = !!want.bedtime;
-      form.querySelector('#formErr').hidden = true;
-      sync(); showPreview();
     };
     var showPreview = function () {
-      var med = collectMed(form, m.med_id), times = previewTimes(med, currentPatient() || {});
+      var med = collectMed(form, orig), times = previewTimes(med, currentPatient() || {});
       var dows = med.days_of_week ? 'เฉพาะวัน ' + med.days_of_week.split(',').map(function (d) { return DOW[+d]; }).join(' ') : 'ทุกวัน';
       var range = (med.start_date ? ' ตั้งแต่ ' + med.start_date : '') + (med.end_date ? ' ถึง ' + med.end_date : '');
       var today = ymdLocal(new Date());
@@ -532,35 +563,44 @@
         : med.start_date > today ? 'เริ่มเตือนวันที่ ' + med.start_date + ' (วันนี้ยังไม่เตือน)'
         : close ? 'เวลา ' + close + ' ห่างกันไม่ถึง 1 ชั่วโมง ตรวจว่าตรงกับซองยา'
         : times.length > 6 ? 'เตือนบ่อยมาก (วันละ ' + times.length + ' ครั้ง) ข้อความฟรีของ LINE (300 ข้อความ/เดือน) อาจหมดเร็ว' : '';
+      var who = med.kind ? 'ยาสูดพ่น' + (med.name ? ' ' + med.name : '') : 'ยารับประทาน' + (med.name ? ' ' + med.name : '');
       form.querySelector('#preview').innerHTML = String(med.schedule_type === 'PRN'
-        ? html`<b>ไม่มีการเตือน</b> · กด “บันทึกว่า${verbOf(med)}” ในหน้ายาวันนี้ทุกครั้งที่${verbOf(med)}`
-        : times.length ? html`<b>ระบบจะเตือนเวลา</b> ${times.join(', ')} น. · ${dows}${range}<br><span class="note">วันละ ${times.length} ครั้ง</span>${warn ? html`<br><b class="err">⚠ ${warn}</b>` : ''}`
-        : html`<b>ยังไม่มีเวลาเตือน</b> · กรอกข้อมูลด้านบนให้ครบ`);
+        ? html`<b>${who}</b> · ไม่มีการเตือน · กด “บันทึกว่า${verbOf(med)}” ในหน้ายาวันนี้ทุกครั้งที่${verbOf(med)}`
+        : times.length ? html`<b>${who}</b><br><b>ระบบจะเตือนเวลา</b> ${times.join(', ')} น. · ${dows}${range}<br><span class="note">วันละ ${times.length} ครั้ง · ถ้ายังไม่กด เตือนซ้ำหลัง 15 นาที</span>${warn ? html`<br><b class="err">⚠ ${warn}</b>` : ''}`
+        : html`<b>${who}</b> · <b>ยังไม่มีเวลาเตือน</b> · ${med.kind ? 'กดเลือกเวลาพ่นยา' : 'กรอกข้อมูลด้านบนให้ครบ'}`);
     };
+    var refresh = function () { form.querySelector('#formErr').hidden = true; sync(); showPreview(); };
+    // ส่วนที่ผู้ใช้กรอกล่าสุด = ชนิดยาที่จะบันทึก
+    var kindOf = function (el) { return el.closest('#inhalerBox') ? 'INHALER' : el.closest('#oralBox') ? '' : null; };
     form.addEventListener('change', function (e) {
-      form.querySelector('#formErr').hidden = true;
-      sync(); showPreview();
+      var k = kindOf(e.target);
+      if (k !== null && (e.target.type !== 'text' && e.target.type !== 'number' || e.target.value !== '')) setKind(k);
+      refresh();
     });
     form.addEventListener('input', function (e) {
-      form.querySelector('#formErr').hidden = true;
-      if (e.target.name === 'puffs' && e.target.value !== '' && form.dataset.kind !== 'INHALER') { setKind('INHALER'); sync(); }
-      showPreview();
+      var k = kindOf(e.target);
+      if (k !== null && e.target.value !== '') setKind(k);
+      refresh();
     });
     form.addEventListener('click', function (e) {
       var pr = e.target.closest('[data-preset]');
-      if (pr) { setKind(''); return applyPreset(pr.dataset.preset); }
+      if (pr) { setKind(''); applyPreset(pr.dataset.preset); return refresh(); }
       var ip = e.target.closest('[data-ipreset]');
       if (ip) {
-        setKind('INHALER'); applyPreset(ip.dataset.ipreset);
-        if (!form.elements.puffs.value) form.elements.puffs.focus();
+        setKind('INHALER'); form.dataset.inh = ip.dataset.ipreset;
+        var old = form.querySelector('#inhLegacy'); if (old) old.remove();
+        refresh();
+        if (!form.elements.inh_name.value) form.elements.inh_name.focus();
+        else if (!form.elements.puffs.value) form.elements.puffs.focus();
         return;
       }
-      if (e.target.closest('[data-act=addTime],[data-act=rmTime]')) setTimeout(showPreview, 0);
+      if (e.target.closest('[data-jump]')) return form.querySelector('#inhalerBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (e.target.closest('[data-act=addTime],[data-act=rmTime]')) { setKind(''); setTimeout(refresh, 0); }
     });
     sync(); showPreview();
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      var med = collectMed(form, m.med_id), $err = form.querySelector('#formErr');
+      var med = collectMed(form, orig), $err = form.querySelector('#formErr');
       var msg = validateMed(med);
       if (msg) { $err.textContent = msg; $err.hidden = false; return; }
       $err.hidden = true;
@@ -592,37 +632,46 @@
     return html`<div class="time-row"><input type="time" name="time" value="${t}" aria-label="เวลา"><button type="button" class="btn secondary small" data-act="rmTime" aria-label="ลบเวลา">ลบ</button></div>`;
   }
 
-  function collectMed(form, medId) {
+  /** อ่านฟอร์มเป็นข้อมูลยา — orig = ยาเดิม (แก้ไข) ใช้คืนค่าเวลาเดิมของยาพ่นรุ่นก่อนที่ตั้งเวลาเอง */
+  function collectMed(form, orig) {
+    orig = orig || {};
     var t = form.querySelector('input[name=schedule_type]:checked').value;
     var val = function (n) { var el = form.elements[n]; return el ? String(el.value).trim() : ''; };
     var num = function (n) { var v = val(n); return v === '' ? '' : Number(v); };
+    var inh = form.dataset.kind === 'INHALER';
     var med = {
-      name: val('name'), dose_text: val('dose_text'), note: val('note'), schedule_type: t,
+      name: val(inh ? 'inh_name' : 'name'), dose_text: inh ? '' : val('dose_text'), note: val('note'), schedule_type: t,
       times: '', meals: '', interval_hours: '', interval_start: '', prn_max_per_day: '',
       days_of_week: '', start_date: '', end_date: '',
       stock_qty: num('stock_qty'), units_per_dose: num('units_per_dose') || 1, low_stock_days: num('low_stock_days'),
-      kind: form.dataset.kind === 'INHALER' ? 'INHALER' : ''
+      kind: inh ? 'INHALER' : ''
     };
-    if (med.kind) {   // ยาสูดพ่น: "ครั้งละ N puff" นับยาคงเหลือเป็น puff และเวลาเช้า/เย็นไม่มีก่อน/หลังอาหาร
+    if (orig.med_id) med.med_id = orig.med_id;
+    if (inh) {   // ยาสูดพ่น: "ครั้งละ N puff" นับยาคงเหลือเป็น puff; เวลาจากปุ่มเวลาพ่นยา
+      var sel = form.dataset.inh || '';
       med.puffs = num('puffs');
       med.dose_text = med.puffs ? med.puffs + ' puff' : '';
       med.units_per_dose = med.puffs || 1;
+      if (sel === 'PRN') { med.schedule_type = 'PRN'; med.prn_max_per_day = num('inh_prn_max'); }
+      else if (sel === 'LEGACY') {   // ยาพ่นรุ่นก่อนที่ตั้งเวลาเอง/ทุกกี่ชั่วโมง → เก็บเวลาเดิม
+        med.schedule_type = String(orig.schedule_type || 'FIXED').toUpperCase();
+        ['times', 'meals', 'interval_hours', 'interval_start', 'prn_max_per_day'].forEach(function (k) { med[k] = orig[k] === undefined ? '' : orig[k]; });
+      } else { med.schedule_type = 'MEAL'; med.meals = sel; }
+    } else {
+      if (t === 'FIXED') {
+        var ts = Array.prototype.map.call(form.querySelectorAll('input[name=time]'), function (i) { return i.value; }).filter(Boolean);
+        med.times = ts.filter(function (x, i) { return ts.indexOf(x) === i; }).sort().join(',');
+      }
+      if (t === 'MEAL') {
+        var parts = MEALS.filter(function (x) { return form.elements['meal_' + x[0]].checked; })
+          .map(function (x) { return x[0] + ':' + form.elements['when_' + x[0]].value; });
+        if (form.elements.meal_bedtime.checked) parts.push('bedtime');
+        med.meals = parts.join(',');
+      }
+      if (t === 'INTERVAL') { med.interval_hours = num('interval_hours'); med.interval_start = val('interval_start'); }
+      if (t === 'PRN') med.prn_max_per_day = num('prn_max_per_day');
     }
-    if (medId) med.med_id = medId;
-    if (t === 'FIXED') {
-      var ts = Array.prototype.map.call(form.querySelectorAll('input[name=time]'), function (i) { return i.value; }).filter(Boolean);
-      med.times = ts.filter(function (x, i) { return ts.indexOf(x) === i; }).sort().join(',');
-    }
-    if (t === 'MEAL') {
-      var parts = MEALS.filter(function (x) { return form.elements['meal_' + x[0]].checked; })
-        .map(function (x) { return x[0] + ':' + form.elements['when_' + x[0]].value; });
-      if (form.elements.meal_bedtime.checked) parts.push('bedtime');
-      med.meals = parts.join(',');
-      if (med.kind) med.meals = med.meals.replace(/:with/g, '');   // ยาพ่น: ตรงเวลามื้อ ไม่มีก่อน/หลังอาหาร
-    }
-    if (t === 'INTERVAL') { med.interval_hours = num('interval_hours'); med.interval_start = val('interval_start'); }
-    if (t === 'PRN') med.prn_max_per_day = num('prn_max_per_day');
-    if (t !== 'PRN') {
+    if (med.schedule_type !== 'PRN') {
       med.days_of_week = Array.prototype.filter.call(form.querySelectorAll('input[name=dow]'), function (i) { return i.checked; })
         .map(function (i) { return i.value; }).join(',');
       if (med.days_of_week.split(',').length === 7) med.days_of_week = '';
@@ -634,12 +683,12 @@
   /** คำนวณเวลาเตือนแบบเดียวกับ Schedule.gs เพื่อแสดงตัวอย่างก่อนบันทึก */
   function previewTimes(m, p) {
     var toMin = function (s) { var x = String(s || '').match(/^(\d{1,2}):(\d{2})$/); return x ? +x[1] * 60 + +x[2] : null; };
-    var mins = [], def = { breakfast: '07:00', lunch: '12:00', dinner: '18:00', bedtime: '21:00' };
+    var mins = [];
     if (m.schedule_type === 'FIXED') String(m.times).split(',').forEach(function (t) { var v = toMin(t); if (v !== null) mins.push(v); });
     if (m.schedule_type === 'MEAL') String(m.meals).split(',').filter(Boolean).forEach(function (tok) {
-      var q = tok.split(':'), base = toMin(p[q[0]] || def[q[0]]);
+      var q = tok.split(':'), base = toMin(p[q[0]] || DEF_MEALS[q[0]]);
       if (base === null) return;
-      mins.push((base + (q[1] === 'before' ? -30 : q[1] === 'after' ? 15 : 0) + 1440) % 1440);
+      mins.push((base + (MEAL_OFF[q[1] || 'with'] || 0) + 1440) % 1440);
     });
     if (m.schedule_type === 'INTERVAL') {
       var a = toMin(m.interval_start || '00:00'), n = +m.interval_hours;
@@ -660,8 +709,12 @@
   }
 
   function validateMed(m) {
+    if (m.kind === 'INHALER') {
+      if (!m.name) return 'ยาสูดพ่น: กรุณาระบุชื่อยา';
+      if (!(m.puffs >= 1 && m.puffs <= 20 && m.puffs === Math.floor(m.puffs))) return 'ยาสูดพ่น: กรอกจำนวน puff ต่อครั้ง (1–20)';
+      if (m.schedule_type === 'MEAL' && !m.meals) return 'ยาสูดพ่น: กดเลือกเวลาพ่นยา';
+    }
     if (!m.name) return 'กรุณาระบุชื่อยา';
-    if (m.kind === 'INHALER' && !(m.puffs >= 1 && m.puffs <= 20 && m.puffs === Math.floor(m.puffs))) return 'ยาสูดพ่น: กรอกจำนวน puff ต่อครั้ง (1–20)';
     if (m.schedule_type === 'FIXED' && !m.times) return 'กรุณาระบุเวลาอย่างน้อย 1 เวลา';
     if (m.schedule_type === 'MEAL' && !m.meals) return 'กรุณาเลือกมื้ออาหารอย่างน้อย 1 มื้อ';
     if (m.schedule_type === 'INTERVAL' && !(m.interval_hours >= 1 && m.interval_hours <= 24)) return 'ช่วงเวลาต้องอยู่ระหว่าง 1–24 ชั่วโมง';
