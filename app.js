@@ -71,6 +71,21 @@
   }
   function raw(s) { return { __raw: s, toString: function () { return s; } }; }
   function render(h) { $view.innerHTML = String(h); }
+  /** หัวข้อช่องกรอก + คำกำกับสีจางในบรรทัดเดียวกัน (เช่น "เวลา  ไม่บังคับ") ช่องที่วางคู่กันจึงอยู่ระดับเดียวกัน */
+  function lbl(text, hint) { return html`<span class="lbl">${text}${hint ? html`<span class="hint">${hint}</span>` : ''}</span>`; }
+  /**
+   * ช่องวันที่/เวลาที่เว้นว่างได้ — Android และ iPhone แสดงช่องว่างเปล่าเมื่อยังไม่เลือก
+   * จึงใส่ข้อความแทน (เช่น "เลือกวันนัด") ไว้ในช่อง และซ่อนเมื่อมีค่าหรือกำลังเลือก
+   */
+  function picker(type, name, value, ph, attrs) {
+    return html`<span class="picker${value ? '' : ' is-empty'}" data-ph="${ph}"><input type="${type}" name="${name}" value="${value || ''}" ${raw(attrs || '')}></span>`;
+  }
+  function syncPicker(e) {
+    var box = e.target && e.target.parentNode;
+    if (box && box.classList && box.classList.contains('picker')) box.classList.toggle('is-empty', !e.target.value);
+  }
+  document.addEventListener('input', syncPicker);
+  document.addEventListener('change', syncPicker);
 
   var toastTimer;
   /** แจ้งเตือนสั้น ๆ ด้านล่าง; action = { label, run } แสดงปุ่ม เช่น "ยกเลิก" (ค้างไว้นานขึ้นให้กดทัน) */
@@ -148,6 +163,7 @@
     join: pageJoin, videos: pageVideos, qa: pageQa, register: pageRegister, appt: pageAppt
   };
   var NEED_PATIENT = ['today', 'meds', 'history', 'invite', 'appt'];
+  var TAB_OF = { appt: 'meds' };
 
   function go(page, params) {
     state.page = PAGES[page] ? page : 'today';
@@ -156,8 +172,9 @@
     url.searchParams.set('page', state.page);
     if (state.page !== 'join') url.searchParams.delete('code');
     history.replaceState(null, '', url);
+    var tab = TAB_OF[state.page] || state.page;   // หน้านัดพบแพทย์อยู่ใต้แท็บตารางยา
     Array.prototype.forEach.call($tabs.querySelectorAll('a'), function (a) {
-      a.classList.toggle('active', a.dataset.page === state.page);
+      a.classList.toggle('active', a.dataset.page === tab);
       if (a.dataset.page === state.page) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
     window.scrollTo(0, 0);
@@ -503,8 +520,8 @@
               <span style="font-weight:600">วันที่ต้องใช้ยา</span><span class="note">ไม่เลือกเลย = ทุกวัน</span>
               <div class="chips">${DOW.map(function (d, i) { return html`<label class="chip"><input type="checkbox" name="dow" value="${i}" ${raw(dows.indexOf(i) >= 0 ? 'checked' : '')}>${d}</label>`; })}</div>
               <div class="grid2">
-                <label class="field">เริ่มวันที่<input type="date" name="start_date" value="${m.start_date || ''}"></label>
-                <label class="field">ถึงวันที่<input type="date" name="end_date" value="${m.end_date || ''}"></label>
+                <label class="field">เริ่มวันที่${picker('date', 'start_date', m.start_date, 'ไม่กำหนด')}</label>
+                <label class="field">ถึงวันที่${picker('date', 'end_date', m.end_date, 'ไม่กำหนด')}</label>
               </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
@@ -771,16 +788,16 @@
         <div class="page-head"><div><h1>นัดพบแพทย์</h1><p class="sub">${p ? p.name + ' · ' : ''}${r.upcoming.length ? r.upcoming.length + ' นัดที่จะถึง' : 'ยังไม่มีนัด'}</p></div>
           <button class="btn ghost small" data-go="meds">กลับ</button></div>
         <p class="note">ระบบส่ง LINE เตือนเย็นวันก่อนนัด (${r.remind.eve} น.) และเช้าวันนัด (${r.remind.morning} น.) ถึงคนที่รับข้อความเตือนยา</p>
-        <div id="apptList">${r.upcoming.length ? r.upcoming.map(function (a) { return apptCard(a, false); })
-          : html`<div class="card soft"><p>ยังไม่มีนัด เพิ่มวันนัดจากใบนัดของโรงพยาบาลได้ด้านล่าง</p></div>`}</div>
+        ${r.upcoming.length ? html`<div id="apptList">${r.upcoming.map(function (a) { return apptCard(a, false); })}</div>` : ''}
         <form class="card" id="apptForm" novalidate>
-          <h2>${edit ? 'แก้ไขนัด' : 'เพิ่มนัด'}</h2>
+          <div class="form-head"><h2>${edit ? 'แก้ไขนัด' : 'เพิ่มนัด'}</h2>
+            <p class="note">ดูวัน เวลา และสถานที่จากใบนัดของโรงพยาบาล</p></div>
           <div class="grid2">
-            <label class="field">วันนัด<input type="date" name="date" required min="${today}" value="${edit ? edit.date : ''}"></label>
-            <label class="field">เวลา<span class="hint">ไม่บังคับ</span><input type="time" name="time" value="${edit ? edit.time : ''}"></label>
+            <label class="field">${lbl('วันนัด', '')}${picker('date', 'date', edit && edit.date, 'เลือกวันนัด', 'required min="' + today + '"')}</label>
+            <label class="field">${lbl('เวลา', 'ไม่บังคับ')}${picker('time', 'time', edit && edit.time, 'เลือกเวลา')}</label>
           </div>
-          <label class="field">สถานที่<span class="hint">ไม่บังคับ</span><input type="text" name="place" maxlength="80" value="${edit ? edit.place : ''}" placeholder="เช่น คลินิกโรคหืด โรงพยาบาล…"></label>
-          <label class="field">หมายเหตุ<span class="hint">ไม่บังคับ</span><input type="text" name="note" maxlength="120" value="${edit ? edit.note : ''}" placeholder="เช่น นำยาพ่นและสมุดนัดไปด้วย"></label>
+          <label class="field">${lbl('สถานที่', 'ไม่บังคับ')}<input type="text" name="place" maxlength="80" value="${edit ? edit.place : ''}" placeholder="เช่น คลินิกโรคหืด โรงพยาบาล…"></label>
+          <label class="field">${lbl('หมายเหตุ', 'ไม่บังคับ')}<input type="text" name="note" maxlength="120" value="${edit ? edit.note : ''}" placeholder="เช่น นำยาพ่นและสมุดนัดไปด้วย"></label>
           <p class="err" hidden></p>
           <div class="row"><button class="btn" type="submit">${edit ? 'บันทึกการแก้ไข' : 'บันทึกนัด'}</button>
             ${edit ? html`<button class="btn secondary" type="button" data-go="appt">ยกเลิกการแก้ไข</button>` : ''}</div>
@@ -802,7 +819,7 @@
           go('appt');
         }).catch(function (err) { btn.disabled = false; $err.textContent = err.message; $err.hidden = false; });
       });
-      $view.querySelector('#apptList').onclick = function (e) {
+      if (r.upcoming.length) $view.querySelector('#apptList').onclick = function (e) {
         var ed = e.target.closest('[data-aedit]'), del = e.target.closest('[data-adel]');
         if (ed) return go('appt', { edit: ed.dataset.aedit });
         if (!del) return;

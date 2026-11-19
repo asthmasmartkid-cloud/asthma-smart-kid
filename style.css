@@ -16,15 +16,19 @@
   --ok-soft: #DDF3EC;
   --radius: 16px;
   --tabs-h: 68px;
+  color-scheme: light;
 }
+/* color-scheme: ให้ปุ่มปฏิทิน/นาฬิกาในช่องวันที่-เวลา และหน้าต่างเลือกวันที่ เป็นสีมืดตามธีม */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #0E1F1F; --surface: #152A2A; --surface-2: #1B3534; --ink: #E7F1EE; --ink-2: #B9CCC8; --muted: #8DA5A1;
     --line: #26403F; --brand: #3FB5A6; --brand-ink: #0E1F1F; --brand-soft: #1D3F3B;
     --warn: #F0A06E; --warn-soft: #3A2A1F; --danger: #F2877C; --danger-soft: #3D2321; --ok-soft: #1D3A33;
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0E1F1F; --surface: #152A2A; --surface-2: #1B3534; --ink: #E7F1EE; --ink-2: #B9CCC8; --muted: #8DA5A1;
   --line: #26403F; --brand: #3FB5A6; --brand-ink: #0E1F1F; --brand-soft: #1D3F3B;
   --warn: #F0A06E; --warn-soft: #3A2A1F; --danger: #F2877C; --danger-soft: #3D2321; --ok-soft: #1D3A33;
@@ -97,8 +101,21 @@ label.field > span.hint { font-weight: 400; color: var(--muted); font-size: 15px
 input[type=text], input[type=search], input[type=number], input[type=time], input[type=date], select.input, textarea {
   width: 100%; min-height: 48px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface);
 }
-.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: end; }
 .grid2 > *, label.field > input { min-width: 0; }
+/* หัวข้อ + คำกำกับ "ไม่บังคับ" ในบรรทัดเดียว */
+.lbl { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.lbl .hint { font-weight: 400; color: var(--muted); font-size: 15px; }
+/* ช่องวันที่/เวลาที่ยังว่าง: แสดงข้อความแทน เพราะ Android/iPhone แสดงเป็นช่องเปล่า */
+.picker { position: relative; display: block; min-width: 0; }
+.picker > input { display: block; min-width: 0; }
+.picker.is-empty > input:not(:focus) { color: transparent; }
+.picker.is-empty::after {
+  content: attr(data-ph); position: absolute; left: 13px; right: 36px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+input::placeholder { color: var(--muted); opacity: 1; }   /* สีเดียวกับข้อความแทนในช่องวันที่/เวลา */
+.picker.is-empty:focus-within::after { content: none; }
 .grid4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 @media (min-width: 480px) { .grid4 { grid-template-columns: repeat(4, 1fr); } }
 
@@ -216,4 +233,5 @@ label.check input { width: 22px; height: 22px; flex: none; accent-color: var(--b
 /* นัดพบแพทย์ */
 .appt-banner { border-left: 6px solid var(--warn); display: flex; flex-direction: column; gap: 10px; }
 .appt-entry h2 { margin: 0 0 4px; }
+.form-head { display: flex; flex-direction: column; gap: 4px; }
 .card.appt + .card.appt { margin-top: 0; }
